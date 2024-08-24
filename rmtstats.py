@@ -8,9 +8,115 @@ import os
 import sys
 import paramiko
 from time import sleep
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
+from PyQt5.QtCore import Qt, QTimer
+import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+class BoxedLabel(QWidget):
+    """
+
+    """
+    
+    def __init__(self):
+        super().__init__()
+
+        self.initUI()
+
+    def initUI(self):
+        self.label = QLabel(self)
+        self.label.setStyleSheet("""
+            border: 2px solid black;
+            padding: 10px;
+            background-color: black;
+            color: white;
+            qproperty-alignment: 'AlignLeft|AlignTop';  /* Align text to the left and top */
+        """)
+        self.label.setTextFormat(Qt.RichText)  # Set text format to HTML
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.label)
+        self.setLayout(layout)
+
+        self.setWindowTitle('--- Remote Stats ---')
+        self.resize(480, 272)  # Adjust size as needed
+        self.show()
+
+    def update_text(self, text):
+        # Use HTML to format the text
+        formatted_text = f"<pre>{text}</pre>"  # Use <pre> tag to preserve whitespace and line breaks
+        self.label.setText(formatted_text)
+
+
+class FetchRemoteStats(threading.Thread):
+    """
+
+    """
+
+    def __init__(self, ip: str, user: str) -> None:
+
+        threading.Thread.__init__(self)
+        
+        self.ip = ip
+        self.username = user
+        self.__info = 'The screen will be update soon!'
+        self.__lock = True
+        self.thread = threading.Thread()
+        self.thread.name = 'RmstStats'
+        self.start()
+
+    def run(self):
+        """
+
+        """
+
+        try:
+
+            logging.info('Start fetching ...')
+
+            while self.__lock:
+
+                if check_target_is_online(ip=self.ip):
+
+                    logging.info('Target available, proceeding to next iteration.')
+                    info = fetch_top_info(ip=self.ip, username=self.username)                
+
+                    if info:
+                        self.__info = info
+                    else:
+                        self.__info = 'Failed to retrieve information.'
+                        logging.error(self.__info)
+                    
+                    #  Wait one second before acquiring the target again
+                    sleep(1)
+
+                else:
+                    self.__info = 'Target unavailable, retrying in 2 seconds.'
+                    logging.info(self.__info)
+                    # Wait two seconds before retrying
+                    sleep(2)
+
+            logging.info('Stop fetching')
+
+        except threading.ThreadError as e:
+            logging.error(f"An error occurred: {e}")
+            sys.exit(1)
+
+    def get(self) -> str:
+        """
+
+        """
+        return self.__info
+
+    def unlock(self) -> None:
+        """
+
+        """
+        self.__lock = False
+
+
 
 def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
     """
@@ -192,54 +298,23 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
 
 def main(ip: str, username: str) -> None:
     """
-    Continuously monitor a remote machine's CPU usage via SSH and display the results.
 
-    This function runs an infinite loop that checks if a target machine is online. 
-    If the target is online, it fetches the `top` command output, displaying the 
-    system's current state and the most CPU-intensive processes. The screen is 
-    cleared before each new display. The function handles interruptions gracefully 
-    and logs significant events.
-
-    Args:
-        ip (str): The IP address of the target machine to monitor.
-        username (str): The username to use for the SSH connection.
-
-    Raises:
-        KeyboardInterrupt: If the script is interrupted by the user.
-        Exception: If an unexpected error occurs during execution.
-
-    Returns:
-        None
     """
 
     try:
         logging.info("rmtstats is running")
+
+        stats = FetchRemoteStats(ip=ip, user=username)
+        app = QApplication(sys.argv)
+        box = BoxedLabel()
         
-        while True:
+        # Update every 1 second
+        timer = QTimer()
+        timer.timeout.connect(lambda: box.update_text(stats.get()))
+        timer.start(1000)
 
-            if check_target_is_online(ip=ip):
-
-                info = fetch_top_info(ip=ip, username=username)                
-
-                if info:
-                    # Clear the screen and print the new information
-                    os.system('clear')
-                    print(info)
-                else:
-                    logging.error("Failed to retrieve information.")
-
-                logging.info('Target available, proceeding to next iteration.')
-                #  Wait one second before acquiring the target again
-                sleep(1)
-
-            else:
-                logging.info('Target unavailable, retrying in 2 seconds.')
-                # Wait two seconds before retrying
-                sleep(2)
-
-    except KeyboardInterrupt:
-        logging.info("Script interrupted by user.")
-        sys.exit(0)
+        app.exec_()
+        stats.unlock()
 
     except Exception as e:
         logging.error(f"An error occurred: {e}")
@@ -251,14 +326,14 @@ def main(ip: str, username: str) -> None:
 
 if __name__ == "__main__":
     """
-    Command line arguments allow the script to be invoked from crontab on a specific IP address/username combination.
+
     """
     parser = argparse.ArgumentParser(description="Remote stats monitoring script.")
     parser.add_argument('--ip', required=True, help="[String] IP address of the target.")
     parser.add_argument('--user', required=True, help="[String] Username for authentication.")
-
+ 
     args = parser.parse_args()
-
+ 
     if not args.ip or not args.user:
         parser.error("Both --ip and --user are required.")
     
