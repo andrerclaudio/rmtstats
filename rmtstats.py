@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
 import logging
 import subprocess
+import os
 import sys
 import paramiko
+from time import sleep
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -106,23 +109,138 @@ def fetch_uname_info(ip: str, username: str, key_file: str = None) -> str:
             client.close()
 
 
-def main():
+def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
     """
-    Main function that runs the script.
+    Fetch the top information from a target machine via SSH.
+
+    This function connects to a remote machine using SSH, executes the `top` command 
+    in batch mode, retrieves the output, processes it to extract the header and 
+    the top CPU-intensive processes, and returns this information as a formatted string.
+
+    Args:
+        ip (str): The IP address of the target machine.
+        username (str): The username to use for the SSH connection.
+        key_file (str, optional): The path to the private key file for SSH authentication. 
+                                  If not provided, it will try to find the SSH keys in 
+                                  the deafult folders.
+
+    Returns:
+        str: The formatted string containing the top command's header and the top CPU-intensive 
+             processes. Returns `None` if there was an error during the connection or command execution.
+    """
+
+    TOP_PROCESS_LINES = 11  # Number of lines to retrieve from the top command
+    TOP_HEADER_LINES = 7  # Header lenght of Top command
+
+    logging.info(f"Connecting to {ip} to retrieve top information.")
+
+    # Initialize the client to None
+    client = None
+    # Initialize the result to None
+    result = None
+
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        if key_file:
+            private_key = paramiko.RSAKey.from_private_key_file(key_file)
+        else:
+            private_key = None
+
+        client.connect(ip, username=username, pkey=private_key)
+
+        # Run top command with batch mode
+        command = "top -b -n 1"  # Use `-b` for batch mode and `-n 1` to limit to one iteration
+
+        stdin, stdout, stderr = client.exec_command(command)
+
+        # Read the command output
+        top_output = stdout.read().decode()
+        error_output = stderr.read().decode()
+
+        if error_output:
+            logging.error(f"Error fetching top output: {error_output}")
+
+        logging.debug(f"Successfully fetched top output from {ip}.")
+
+        # Process the output to get the TOP_PROCESS_LINES number of lines and most CPU-intensive processes
+        lines = top_output.splitlines()        
+        # Capture the top command header output
+        top_header = "\n".join(lines[:TOP_HEADER_LINES])        
+        # Get the CPU-intensive processes (after the header lines)
+        process_lines = [line for line in lines[TOP_PROCESS_LINES:] if line and not line.startswith('top')]
+        # Sort by CPU usage if needed (assuming CPU usage is in the 9th column)
+        process_lines.sort(key=lambda x: float(x.split()[8]), reverse=True)
+        # Join sorted lines to get the top CPU-intensive processes
+        cpu_intense_processes = "\n".join(process_lines[:TOP_PROCESS_LINES])
+
+        result = f"{top_header}\n\nTop CPU-intensive processes (by %CPU):\n{cpu_intense_processes}\n\n"
+
+    except paramiko.SSHException as e:
+        logging.error(f"SSH connection failed: {e}")
+
+    finally:
+        if client:
+            # Don't forget to close the connection
+            logging.info(f'Closing SSH connection to {ip}.')
+            client.close()
+
+        # Return the result (None if there was an error)
+        return result
+
+
+def main(ip: str, username: str) -> None:
+    """
+    Continuously monitor a remote machine's CPU usage via SSH and display the results.
+
+    This function runs an infinite loop that checks if a target machine is online. 
+    If the target is online, it fetches the `top` command output, displaying the 
+    system's current state and the most CPU-intensive processes. The screen is 
+    cleared before each new display. The function handles interruptions gracefully 
+    and logs significant events.
+
+    Args:
+        ip (str): The IP address of the target machine to monitor.
+        username (str): The username to use for the SSH connection.
+
+    Raises:
+        KeyboardInterrupt: If the script is interrupted by the user.
+        Exception: If an unexpected error occurs during execution.
+
+    Returns:
+        None
     """
 
     try:
         logging.info("rmtstats is running")
         
-        # TODO: Add your IP address below, or pass it as a parameter in the command line when running from crontab
-        if check_target_is_online(ip='100.96.1.50'):
+        while True:
 
-            uname_info = fetch_uname_info(ip='100.96.1.50', username='root')
+            # TODO: Add your IP address below, or pass it as a parameter in the command line when running from crontab
+            if check_target_is_online(ip=ip):
 
-            if uname_info:
-                print(uname_info)
+                info = fetch_top_info(ip=ip, username=username)                
+
+                if info:
+                    # Clear the screen and print the new information
+                    os.system('clear')
+                    print(info)
+                else:
+                    logging.error("Failed to retrieve uname information.")
+
+                logging.info('Target available, proceeding to next iteration.')
+                #  Wait one second before acquiring the target again
+                sleep(1)
+
             else:
-                logging.error("Failed to retrieve uname information.")
+                logging.info('Target unavailable, retrying in 2 seconds.')
+                # Wait two seconds before retrying
+                sleep(2)
+
+    except KeyboardInterrupt:
+        logging.info("Script interrupted by user.")
+        sys.exit(0)
 
     except Exception as e:
         logging.error(f"An error occurred: {e}")
@@ -133,4 +251,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    """
+    Command line arguments allow the script to be invoked from crontab on a specific IP address/username combination.
+    """
+    parser = argparse.ArgumentParser(description="Remote stats monitoring script.")
+    parser.add_argument('--ip', required=True, help="[String] IP address of the target.")
+    parser.add_argument('--user', required=True, help="[String] Username for authentication.")
+
+    args = parser.parse_args()
+
+    if not args.ip or not args.user:
+        parser.error("Both --ip and --user are required.")
+    
+    main(args.ip, args.user)
