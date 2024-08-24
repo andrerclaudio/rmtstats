@@ -93,12 +93,12 @@ class FetchRemoteStats(threading.Thread):
                     sleep(1)
 
                 else:
-                    self.__info = 'Target unavailable, retrying in 2 seconds.'
+                    self.__info = 'Target unavailable, retrying ...'
                     logging.info(self.__info)
                     # Wait two seconds before retrying
                     sleep(2)
 
-            logging.info('Stop fetching')
+            logging.info('Stop fetching ...')
 
         except threading.ThreadError as e:
             logging.error(f"An error occurred: {e}")
