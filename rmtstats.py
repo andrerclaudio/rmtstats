@@ -217,7 +217,6 @@ def main(ip: str, username: str) -> None:
         
         while True:
 
-            # TODO: Add your IP address below, or pass it as a parameter in the command line when running from crontab
             if check_target_is_online(ip=ip):
 
                 info = fetch_top_info(ip=ip, username=username)                
@@ -227,7 +226,7 @@ def main(ip: str, username: str) -> None:
                     os.system('clear')
                     print(info)
                 else:
-                    logging.error("Failed to retrieve uname information.")
+                    logging.error("Failed to retrieve information.")
 
                 logging.info('Target available, proceeding to next iteration.')
                 #  Wait one second before acquiring the target again
