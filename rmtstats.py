@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 class BoxedLabel(QWidget):
     """
-
+     
     """
     
     def __init__(self):
@@ -52,44 +52,58 @@ class BoxedLabel(QWidget):
 
 class FetchRemoteStats(threading.Thread):
     """
+    A thread that fetches remote statistics from a specified IP address.
 
+    This class inherits from `threading.Thread` and runs in a separate thread to
+    periodically fetch information from a remote server. It updates the stored
+    information and handles errors during the fetching process.
+
+    Attributes:
+        ip (str): The IP address of the remote server to fetch information from.
+        username (str): The username for authentication to the remote server.
+        __info (str): The most recent information fetched from the remote server.
+        __lock (bool): A flag to control the fetching loop.
     """
 
     def __init__(self, ip: str, user: str) -> None:
+        """
+        Initialize the FetchRemoteStats thread.
 
-        threading.Thread.__init__(self)
+        Args:
+            ip (str): The IP address of the remote server.
+            user (str): The username for authentication.
+        """
+        super().__init__(name='RmstStats')
         
         self.ip = ip
         self.username = user
-        self.__info = 'The screen will be update soon!'
+        self.__info = 'The screen will update soon!'
         self.__lock = True
-        self.thread = threading.Thread()
-        self.thread.name = 'RmstStats'
+        
+        # Start the thread
         self.start()
 
-    def run(self):
+    def run(self) -> None:
         """
-
+        The method that runs in the thread. Continuously fetches information from the remote server
+        as long as the __lock attribute is True. Logs status updates and handles errors.
         """
-
         try:
-
             logging.info('Start fetching ...')
 
             while self.__lock:
 
                 if check_target_is_online(ip=self.ip):
-
-                    logging.info('Target available, proceeding to next iteration.')
-                    info = fetch_top_info(ip=self.ip, username=self.username)                
+                    logging.info('Target available, proceeding to fetch information.')
+                    info = fetch_top_info(ip=self.ip, username=self.username)
 
                     if info:
                         self.__info = info
                     else:
                         self.__info = 'Failed to retrieve information.'
                         logging.error(self.__info)
-                    
-                    #  Wait one second before acquiring the target again
+
+                    # Wait one second before the next fetch attempt
                     sleep(1)
 
                 else:
@@ -106,16 +120,18 @@ class FetchRemoteStats(threading.Thread):
 
     def get(self) -> str:
         """
+        Retrieve the most recent information fetched.
 
+        Returns:
+            str: The most recent information fetched from the remote server.
         """
         return self.__info
 
     def unlock(self) -> None:
         """
-
+        Stop the fetching loop by setting the __lock attribute to False.
         """
         self.__lock = False
-
 
 
 def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
@@ -298,22 +314,39 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
 
 def main(ip: str, username: str) -> None:
     """
+    Main entry point for the application.
 
+    Initializes the FetchRemoteStats thread to fetch remote statistics
+    and sets up a Qt application to display the information. The application
+    updates the displayed information every second.
+
+    Args:
+        ip (str): The IP address of the remote server to fetch information from.
+        username (str): The username for authentication to the remote server.
+
+    Exits:
+        sys.exit(0) if the application finishes successfully.
+        sys.exit(1) if an error occurs.
     """
-
     try:
         logging.info("rmtstats is running")
 
+        # Initialize the FetchRemoteStats thread
         stats = FetchRemoteStats(ip=ip, user=username)
+
+        # Create the Qt application
         app = QApplication(sys.argv)
         box = BoxedLabel()
-        
-        # Update every 1 second
+
+        # Create a QTimer to update the BoxedLabel every second
         timer = QTimer()
         timer.timeout.connect(lambda: box.update_text(stats.get()))
-        timer.start(1000)
+        timer.start(1000)  # Interval in milliseconds
 
+        # Start the Qt event loop
         app.exec_()
+
+        # Stop the FetchRemoteStats thread after the application quits
         stats.unlock()
 
     except Exception as e:
@@ -326,15 +359,31 @@ def main(ip: str, username: str) -> None:
 
 if __name__ == "__main__":
     """
+    Entry point for the script when executed directly.
 
+    Parses command-line arguments for the IP address and username,
+    validates the arguments, and calls the main function to start
+    the remote stats monitoring application.
+
+    Command-line arguments:
+        --ip (str): The IP address of the target server.
+        --user (str): The username for authentication.
+
+    Exits:
+        sys.exit(1) if required arguments are missing or invalid.
     """
     parser = argparse.ArgumentParser(description="Remote stats monitoring script.")
-    parser.add_argument('--ip', required=True, help="[String] IP address of the target.")
-    parser.add_argument('--user', required=True, help="[String] Username for authentication.")
- 
+    
+    # Define command-line arguments
+    parser.add_argument('--ip', required=True, help="IP address of the target server.")
+    parser.add_argument('--user', required=True, help="Username for authentication.")
+
+    # Parse arguments
     args = parser.parse_args()
- 
+
+    # Check if required arguments are present
     if not args.ip or not args.user:
         parser.error("Both --ip and --user are required.")
-    
+
+    # Call the main function with parsed arguments
     main(args.ip, args.user)
