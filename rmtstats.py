@@ -13,13 +13,14 @@ from PyQt5.QtCore import Qt, QTimer
 import threading
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 
 class BoxedLabel(QWidget):
-    """
-     
-    """
-    
+    """ """
+
     def __init__(self):
         super().__init__()
 
@@ -27,26 +28,30 @@ class BoxedLabel(QWidget):
 
     def initUI(self):
         self.label = QLabel(self)
-        self.label.setStyleSheet("""
+        self.label.setStyleSheet(
+            """
             border: 2px solid black;
             padding: 10px;
             background-color: black;
             color: white;
             qproperty-alignment: 'AlignLeft|AlignTop';  /* Align text to the left and top */
-        """)
+        """
+        )
         self.label.setTextFormat(Qt.RichText)  # Set text format to HTML
 
         layout = QVBoxLayout()
         layout.addWidget(self.label)
         self.setLayout(layout)
 
-        self.setWindowTitle('--- Remote Stats ---')
+        self.setWindowTitle("--- Remote Stats ---")
         self.resize(480, 272)  # Adjust size as needed
         self.show()
 
     def update_text(self, text):
         # Use HTML to format the text
-        formatted_text = f"<pre>{text}</pre>"  # Use <pre> tag to preserve whitespace and line breaks
+        formatted_text = (
+            f"<pre>{text}</pre>"  # Use <pre> tag to preserve whitespace and line breaks
+        )
         self.label.setText(formatted_text)
 
 
@@ -73,13 +78,13 @@ class FetchRemoteStats(threading.Thread):
             ip (str): The IP address of the remote server.
             user (str): The username for authentication.
         """
-        super().__init__(name='RmstStats')
-        
+        super().__init__(name="RmstStats")
+
         self.ip = ip
         self.username = user
-        self.__info = 'The screen will update soon!'
+        self.__info = "The screen will update soon!"
         self.__lock = True
-        
+
         # Start the thread
         self.start()
 
@@ -89,30 +94,30 @@ class FetchRemoteStats(threading.Thread):
         as long as the __lock attribute is True. Logs status updates and handles errors.
         """
         try:
-            logging.info('Start fetching ...')
+            logging.info("Start fetching ...")
 
             while self.__lock:
 
                 if check_target_is_online(ip=self.ip):
-                    logging.info('Target available, proceeding to fetch information.')
+                    logging.info("Target available, proceeding to fetch information.")
                     info = fetch_top_info(ip=self.ip, username=self.username)
 
                     if info:
                         self.__info = info
                     else:
-                        self.__info = 'Failed to retrieve information.'
+                        self.__info = "Failed to retrieve information."
                         logging.error(self.__info)
 
                     # Wait one second before the next fetch attempt
                     sleep(1)
 
                 else:
-                    self.__info = 'Target unavailable, retrying ...'
+                    self.__info = "Target unavailable, retrying ..."
                     logging.info(self.__info)
                     # Wait two seconds before retrying
                     sleep(2)
 
-            logging.info('Stop fetching ...')
+            logging.info("Stop fetching ...")
 
         except threading.ThreadError as e:
             logging.error(f"An error occurred: {e}")
@@ -147,19 +152,19 @@ def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
         bool: True if the target is online, False otherwise.
     """
 
-    logging.info(f'Checking if {ip} is online ...')
+    logging.info(f"Checking if {ip} is online ...")
 
     # Initialise the returncode to False
     returncode = False
 
     # Linux-specific ping command
-    cmd = ['ping', '-c', '1', '-w', str(timeout), ip]
+    cmd = ["ping", "-c", "1", "-w", str(timeout), ip]
 
     for i in range(1, retries + 1):
         logging.debug(f"Ping attempt {i} of {retries} to {ip}")
 
         try:
-            with open('/dev/null', 'w') as devnull:
+            with open("/dev/null", "w") as devnull:
                 returncode = subprocess.call(cmd, stdout=devnull, stderr=devnull) == 0
 
             if returncode:
@@ -227,7 +232,7 @@ def fetch_uname_info(ip: str, username: str, key_file: str = None) -> str:
     finally:
         if client:
             # Don't forget to close the connection
-            logging.debug(f'Closing SSH connection to {ip}.')
+            logging.debug(f"Closing SSH connection to {ip}.")
             client.close()
 
 
@@ -235,19 +240,19 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
     """
     Fetch the top information from a target machine via SSH.
 
-    This function connects to a remote machine using SSH, executes the `top` command 
-    in batch mode, retrieves the output, processes it to extract the header and 
+    This function connects to a remote machine using SSH, executes the `top` command
+    in batch mode, retrieves the output, processes it to extract the header and
     the top CPU-intensive processes, and returns this information as a formatted string.
 
     Args:
         ip (str): The IP address of the target machine.
         username (str): The username to use for the SSH connection.
-        key_file (str, optional): The path to the private key file for SSH authentication. 
-                                  If not provided, it will try to find the SSH keys in 
+        key_file (str, optional): The path to the private key file for SSH authentication.
+                                  If not provided, it will try to find the SSH keys in
                                   the deafult folders.
 
     Returns:
-        str: The formatted string containing the top command's header and the top CPU-intensive 
+        str: The formatted string containing the top command's header and the top CPU-intensive
              processes. Returns `None` if there was an error during the connection or command execution.
     """
 
@@ -287,11 +292,15 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
         logging.debug(f"Successfully fetched top output from {ip}.")
 
         # Process the output to get the TOP_PROCESS_LINES number of lines and most CPU-intensive processes
-        lines = top_output.splitlines()        
+        lines = top_output.splitlines()
         # Capture the top command header output
-        top_header = "\n".join(lines[:TOP_HEADER_LINES])        
+        top_header = "\n".join(lines[:TOP_HEADER_LINES])
         # Get the CPU-intensive processes (after the header lines)
-        process_lines = [line for line in lines[TOP_PROCESS_LINES:] if line and not line.startswith('top')]
+        process_lines = [
+            line
+            for line in lines[TOP_PROCESS_LINES:]
+            if line and not line.startswith("top")
+        ]
         # Sort by CPU usage if needed (assuming CPU usage is in the 9th column)
         process_lines.sort(key=lambda x: float(x.split()[8]), reverse=True)
         # Join sorted lines to get the top CPU-intensive processes
@@ -305,7 +314,7 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
     finally:
         if client:
             # Don't forget to close the connection
-            logging.info(f'Closing SSH connection to {ip}.')
+            logging.info(f"Closing SSH connection to {ip}.")
             client.close()
 
         # Return the result (None if there was an error)
@@ -373,10 +382,10 @@ if __name__ == "__main__":
         sys.exit(1) if required arguments are missing or invalid.
     """
     parser = argparse.ArgumentParser(description="Remote stats monitoring script.")
-    
+
     # Define command-line arguments
-    parser.add_argument('--ip', required=True, help="IP address of the target server.")
-    parser.add_argument('--user', required=True, help="Username for authentication.")
+    parser.add_argument("--ip", required=True, help="IP address of the target server.")
+    parser.add_argument("--user", required=True, help="Username for authentication.")
 
     # Parse arguments
     args = parser.parse_args()
