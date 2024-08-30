@@ -8,9 +8,11 @@ import os
 import sys
 import paramiko
 from time import sleep
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
-from PyQt5.QtCore import Qt, QTimer
 import threading
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, GLib, Gdk
 
 # Configure logging
 logging.basicConfig(
@@ -18,41 +20,58 @@ logging.basicConfig(
 )
 
 
-class BoxedLabel(QWidget):
-    """ """
+class BoxedLabel(Gtk.Window):
+    """
+    A GTK window to display remote statistics.
+    """
 
     def __init__(self):
-        super().__init__()
+        super().__init__(title="--- Remote Stats ---")
+        self.set_default_size(480, 183)  # Set the window size to 480x183
 
-        self.initUI()
+        # Create a label with custom formatting
+        self.label = Gtk.Label()
+        self.label.set_xalign(0)  # Align text to the left
+        self.label.set_yalign(0)  # Align text to the top
+        self.label.set_justify(Gtk.Justification.LEFT)
+        self.label.set_line_wrap(True)
+        self.label.set_name("label")  # Assign a name to the label for CSS
 
-    def initUI(self):
-        self.label = QLabel(self)
-        self.label.setStyleSheet(
-            """
-            border: 2px solid black;
-            padding: 10px;
-            background-color: black;
-            color: white;
-            qproperty-alignment: 'AlignLeft|AlignTop';  /* Align text to the left and top */
+        # Create a container to hold the label
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.box.pack_start(self.label, True, True, 10)
+        self.add(self.box)
+        self.set_name("window")  # Assign a name to the window for CSS
+
+        # Load and apply the CSS
+        self.load_css()
+
+        # Show all components
+        self.show_all()
+        self.fullscreen()  # Make the window full screen
+
+    def load_css(self):
         """
+        Load and apply CSS style from a file.
+        """
+        css_provider = Gtk.CssProvider()
+        css_file = os.path.join(os.path.dirname(__file__), "style.css")
+        if not os.path.exists(css_file):
+            logging.error(f"CSS file not found: {css_file}")
+            sys.exit(1)
+
+        css_provider.load_from_path(css_file)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
-        self.label.setTextFormat(Qt.RichText)  # Set text format to HTML
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.label)
-        self.setLayout(layout)
-
-        self.setWindowTitle("--- Remote Stats ---")
-        self.resize(480, 272)  # Adjust size as needed
-        self.show()
+        logging.info("CSS loaded and applied")
 
     def update_text(self, text):
-        # Use HTML to format the text
-        formatted_text = (
-            f"<pre>{text}</pre>"  # Use <pre> tag to preserve whitespace and line breaks
-        )
-        self.label.setText(formatted_text)
+        # Update the label text
+        formatted_text = f"<span foreground='white' background='black'><tt>{GLib.markup_escape_text(text)}</tt></span>"
+        self.label.set_markup(formatted_text)
 
 
 class FetchRemoteStats(threading.Thread):
@@ -321,6 +340,31 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
         return result
 
 
+def on_activate(application) -> None:
+    """
+    Signal handler for the 'activate' signal of the Gtk.Application.
+    Initializes and shows the BoxedLabel window.
+    """
+    global window  # Declare window as global to be accessible in update_label
+    window = BoxedLabel()
+    window.set_application(application)
+    window.present()
+
+
+def update_label() -> bool:
+    """
+    Signal handler for the GLib timeout signal. Updates the text of the label window
+    if it is open.
+
+    Returns: True if the loop should continue, False to exit.
+    """
+    global stats
+    if window:
+        # Update the text of the window if it is open
+        window.update_text(stats.get())
+    return True  # Continue calling this function
+
+
 def main(ip: str, username: str) -> None:
     """
     Main entry point for the application.
@@ -337,26 +381,29 @@ def main(ip: str, username: str) -> None:
         sys.exit(0) if the application finishes successfully.
         sys.exit(1) if an error occurs.
     """
+
+    global stats
+    global window
+
     try:
         logging.info("rmtstats is running")
 
         # Initialize the FetchRemoteStats thread
         stats = FetchRemoteStats(ip=ip, user=username)
-
-        # Create the Qt application
-        app = QApplication(sys.argv)
-        box = BoxedLabel()
-
-        # Create a QTimer to update the BoxedLabel every second
-        timer = QTimer()
-        timer.timeout.connect(lambda: box.update_text(stats.get()))
-        timer.start(1000)  # Interval in milliseconds
-
-        # Start the Qt event loop
-        app.exec_()
-
+        # Create the GTK application
+        app = Gtk.Application()
+        # Connect the activate signal to the handler
+        app.connect("activate", on_activate)
+        # Create a GLib timeout to update the label every second
+        GLib.timeout_add_seconds(1, update_label)
+        # Run the GTK application
+        app.run(None)
         # Stop the FetchRemoteStats thread after the application quits
         stats.unlock()
+
+    except KeyboardInterrupt:
+        logging.info("Script interrupted by user.")
+        sys.exit(1)
 
     except Exception as e:
         logging.error(f"An error occurred: {e}")
