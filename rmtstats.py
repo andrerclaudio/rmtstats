@@ -84,12 +84,13 @@ class FetchRemoteStats(threading.Thread):
 
     Attributes:
         ip (str): The IP address of the remote server to fetch information from.
-        username (str): The username for authentication to the remote server.
+        user (str): The username for authentication to the remote server.
+        password (str): The password for authentication to the remote server.
         __info (str): The most recent information fetched from the remote server.
         __lock (bool): A flag to control the fetching loop.
     """
 
-    def __init__(self, ip: str, user: str) -> None:
+    def __init__(self, ip: str, user: str, password: str) -> None:
         """
         Initialize the FetchRemoteStats thread.
 
@@ -101,6 +102,7 @@ class FetchRemoteStats(threading.Thread):
 
         self.ip = ip
         self.username = user
+        self.password = password
         self.__info = "The screen will update soon!"
         self.__lock = True
 
@@ -119,7 +121,9 @@ class FetchRemoteStats(threading.Thread):
 
                 if check_target_is_online(ip=self.ip):
                     logging.info("Target available, proceeding to fetch information.")
-                    info = fetch_top_info(ip=self.ip, username=self.username)
+                    info = fetch_top_info(
+                        ip=self.ip, username=self.username, password=self.password
+                    )
 
                     if info:
                         self.__info = info
@@ -255,7 +259,7 @@ def fetch_uname_info(ip: str, username: str, key_file: str = None) -> str:
             client.close()
 
 
-def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
+def fetch_top_info(ip: str, username: str, password: str) -> str:
     """
     Fetch the top information from a target machine via SSH.
 
@@ -266,9 +270,7 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
     Args:
         ip (str): The IP address of the target machine.
         username (str): The username to use for the SSH connection.
-        key_file (str, optional): The path to the private key file for SSH authentication.
-                                  If not provided, it will try to find the SSH keys in
-                                  the deafult folders.
+        password (str): The password to use for the SSH connection.
 
     Returns:
         str: The formatted string containing the top command's header and the top CPU-intensive
@@ -276,25 +278,19 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
     """
 
     TOP_PROCESS_LINES = 11  # Number of lines to retrieve from the top command
-    TOP_HEADER_LINES = 7  # Header lenght of Top command
+    TOP_HEADER_LINES = 7  # Header length of Top command
 
     logging.info(f"Connecting to {ip} to retrieve top information.")
 
-    # Initialize the client to None
     client = None
-    # Initialize the result to None
     result = None
 
     try:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        if key_file:
-            private_key = paramiko.RSAKey.from_private_key_file(key_file)
-        else:
-            private_key = None
-
-        client.connect(ip, username=username, pkey=private_key)
+        # Connect using the username and password
+        client.connect(ip, username=username, password=password)
 
         # Run top command with batch mode
         command = "top -b -n 1"  # Use `-b` for batch mode and `-n 1` to limit to one iteration
@@ -312,17 +308,13 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
 
         # Process the output to get the TOP_PROCESS_LINES number of lines and most CPU-intensive processes
         lines = top_output.splitlines()
-        # Capture the top command header output
         top_header = "\n".join(lines[:TOP_HEADER_LINES])
-        # Get the CPU-intensive processes (after the header lines)
         process_lines = [
             line
             for line in lines[TOP_PROCESS_LINES:]
             if line and not line.startswith("top")
         ]
-        # Sort by CPU usage if needed (assuming CPU usage is in the 9th column)
         process_lines.sort(key=lambda x: float(x.split()[8]), reverse=True)
-        # Join sorted lines to get the top CPU-intensive processes
         cpu_intense_processes = "\n".join(process_lines[:TOP_PROCESS_LINES])
 
         result = f"{top_header}\n\nTop CPU-intensive processes (by %CPU):\n{cpu_intense_processes}\n\n"
@@ -332,11 +324,9 @@ def fetch_top_info(ip: str, username: str, key_file: str = None) -> str:
 
     finally:
         if client:
-            # Don't forget to close the connection
             logging.info(f"Closing SSH connection to {ip}.")
             client.close()
 
-        # Return the result (None if there was an error)
         return result
 
 
@@ -365,17 +355,18 @@ def update_label() -> bool:
     return True  # Continue calling this function
 
 
-def main(ip: str, username: str) -> None:
+def main(ip: str, username: str, password: str) -> None:
     """
     Main entry point for the application.
 
     Initializes the FetchRemoteStats thread to fetch remote statistics
-    and sets up a Qt application to display the information. The application
+    and sets up a Gtk application to display the information. The application
     updates the displayed information every second.
 
     Args:
         ip (str): The IP address of the remote server to fetch information from.
         username (str): The username for authentication to the remote server.
+        password (str): The password for authentication to the remote server.
 
     Exits:
         sys.exit(0) if the application finishes successfully.
@@ -389,7 +380,7 @@ def main(ip: str, username: str) -> None:
         logging.info("rmtstats is running")
 
         # Initialize the FetchRemoteStats thread
-        stats = FetchRemoteStats(ip=ip, user=username)
+        stats = FetchRemoteStats(ip=ip, user=username, password=password)
         # Create the GTK application
         app = Gtk.Application()
         # Connect the activate signal to the handler
@@ -417,13 +408,14 @@ if __name__ == "__main__":
     """
     Entry point for the script when executed directly.
 
-    Parses command-line arguments for the IP address and username,
+    Parses command-line arguments for the IP address, username, and password,
     validates the arguments, and calls the main function to start
     the remote stats monitoring application.
 
     Command-line arguments:
         --ip (str): The IP address of the target server.
         --user (str): The username for authentication.
+        --password (str): The password for authentication.
 
     Exits:
         sys.exit(1) if required arguments are missing or invalid.
@@ -433,13 +425,16 @@ if __name__ == "__main__":
     # Define command-line arguments
     parser.add_argument("--ip", required=True, help="IP address of the target server.")
     parser.add_argument("--user", required=True, help="Username for authentication.")
+    parser.add_argument(
+        "--password", required=True, help="Password for authentication."
+    )
 
     # Parse arguments
     args = parser.parse_args()
 
     # Check if required arguments are present
-    if not args.ip or not args.user:
-        parser.error("Both --ip and --user are required.")
+    if not args.ip or not args.user or not args.password:
+        parser.error("Both --ip, --user, and --password are required.")
 
     # Call the main function with parsed arguments
-    main(args.ip, args.user)
+    main(args.ip, args.user, args.password)
