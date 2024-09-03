@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+from functools import partial
 import logging
 import subprocess
-import os
 import sys
 import paramiko
 from time import sleep
@@ -43,6 +43,18 @@ class BoxedLabel(Gtk.Window):
         self.add(self.box)
         self.set_name("window")  # Assign a name to the window for CSS
 
+        # Dynamic CSS string with font size
+        self.css = """
+        window {
+            background-color: black;
+        }
+
+        label {
+            color: white;
+            font-size: 12px;
+        }
+        """
+
         # Load and apply the CSS
         self.load_css()
 
@@ -52,15 +64,11 @@ class BoxedLabel(Gtk.Window):
 
     def load_css(self):
         """
-        Load and apply CSS style from a file.
+        Load and apply CSS style with dynamic font size.
         """
         css_provider = Gtk.CssProvider()
-        css_file = os.path.join(os.path.dirname(__file__), "style.css")
-        if not os.path.exists(css_file):
-            logging.error(f"CSS file not found: {css_file}")
-            sys.exit(1)
 
-        css_provider.load_from_path(css_file)
+        css_provider.load_from_data(self.css.encode("utf-8"))
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(),
             css_provider,
@@ -207,7 +215,7 @@ def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
 
 def fetch_uname_info(ip: str, username: str, key_file: str = None) -> str:
     """
-    Fetch the uname -a information from the target machine via SSH.
+    Fetch the uname information from the target machine via SSH.
 
     Args:
         ip (str): IP address of the target machine.
@@ -243,14 +251,14 @@ def fetch_uname_info(ip: str, username: str, key_file: str = None) -> str:
 
         if error_output:
             logging.error(f"Error fetching uname output: {error_output}")
-            return None
+            return ""
 
         logging.info(f"Successfully fetched uname output from {ip}.")
         return uname_output
 
     except paramiko.SSHException as e:
         logging.error(f"SSH connection failed: {e}")
-        return None
+        return ""
 
     finally:
         if client:
@@ -277,13 +285,13 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
              processes. Returns `None` if there was an error during the connection or command execution.
     """
 
-    TOP_PROCESS_LINES = 11  # Number of lines to retrieve from the top command
+    TOP_PROCESS_LINES = 3  # Number of lines to retrieve from the top command
     TOP_HEADER_LINES = 7  # Header length of Top command
 
     logging.info(f"Connecting to {ip} to retrieve top information.")
 
-    client = None
-    result = None
+    client = ""
+    result = ""
 
     try:
         client = paramiko.SSHClient()
@@ -330,25 +338,22 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
         return result
 
 
-def on_activate(application) -> None:
+def on_activate(application, window) -> None:
     """
     Signal handler for the 'activate' signal of the Gtk.Application.
     Initializes and shows the BoxedLabel window.
     """
-    global window  # Declare window as global to be accessible in update_label
-    window = BoxedLabel()
     window.set_application(application)
     window.present()
 
 
-def update_label() -> bool:
+def update_label(window, stats) -> bool:
     """
     Signal handler for the GLib timeout signal. Updates the text of the label window
     if it is open.
 
     Returns: True if the loop should continue, False to exit.
     """
-    global stats
     if window:
         # Update the text of the window if it is open
         window.update_text(stats.get())
@@ -373,9 +378,6 @@ def main(ip: str, username: str, password: str) -> None:
         sys.exit(1) if an error occurs.
     """
 
-    global stats
-    global window
-
     try:
         logging.info("rmtstats is running")
 
@@ -383,10 +385,12 @@ def main(ip: str, username: str, password: str) -> None:
         stats = FetchRemoteStats(ip=ip, user=username, password=password)
         # Create the GTK application
         app = Gtk.Application()
-        # Connect the activate signal to the handler
-        app.connect("activate", on_activate)
+        # Initialize the BoxedLabel window
+        window = BoxedLabel()
+        # Connect the activate signal to the handler using partial to pass window
+        app.connect("activate", partial(on_activate, window=window))
         # Create a GLib timeout to update the label every second
-        GLib.timeout_add_seconds(1, update_label)
+        GLib.timeout_add_seconds(1, lambda: update_label(window, stats))
         # Run the GTK application
         app.run(None)
         # Stop the FetchRemoteStats thread after the application quits
