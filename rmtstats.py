@@ -51,7 +51,7 @@ class BoxedLabel(Gtk.Window):
 
         label {
             color: white;
-            font-size: 12px;
+            font-size: 10px;
         }
         """
 
@@ -128,7 +128,7 @@ class FetchRemoteStats(threading.Thread):
             while self.__lock:
 
                 if check_target_is_online(ip=self.ip):
-                    logging.info("Target available, proceeding to fetch information.")
+                    logging.debug("Target available, proceeding to fetch information.")
                     info = fetch_top_info(
                         ip=self.ip, username=self.username, password=self.password
                     )
@@ -144,7 +144,7 @@ class FetchRemoteStats(threading.Thread):
 
                 else:
                     self.__info = "Target unavailable, retrying ..."
-                    logging.info(self.__info)
+                    logging.debug(self.__info)
                     # Wait two seconds before retrying
                     sleep(2)
 
@@ -183,7 +183,7 @@ def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
         bool: True if the target is online, False otherwise.
     """
 
-    logging.info(f"Checking if {ip} is online ...")
+    logging.debug(f"Checking if {ip} is online ...")
 
     # Initialise the returncode to False
     returncode = False
@@ -199,7 +199,7 @@ def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
                 returncode = subprocess.call(cmd, stdout=devnull, stderr=devnull) == 0
 
             if returncode:
-                logging.info(f"Target {ip} is online on attempt {i}.")
+                logging.debug(f"Target {ip} is online on attempt {i}.")
                 break
 
         except OSError as e:
@@ -226,7 +226,7 @@ def fetch_uname_info(ip: str, username: str, key_file: str = None) -> str:
         str: The output of the uname -a command.
     """
 
-    logging.info(f"Connecting to {ip} to retrieve uname information.")
+    logging.debug(f"Connecting to {ip} to retrieve uname information.")
 
     # Initialize the  client to None
     client = None
@@ -253,7 +253,7 @@ def fetch_uname_info(ip: str, username: str, key_file: str = None) -> str:
             logging.error(f"Error fetching uname output: {error_output}")
             return ""
 
-        logging.info(f"Successfully fetched uname output from {ip}.")
+        logging.debug(f"Successfully fetched uname output from {ip}.")
         return uname_output
 
     except paramiko.SSHException as e:
@@ -285,10 +285,11 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
              processes. Returns `None` if there was an error during the connection or command execution.
     """
 
-    TOP_PROCESS_LINES = 3  # Number of lines to retrieve from the top command
+    TOP_PROCESS_LINES = 7  # Number of lines to retrieve from the top command
     TOP_HEADER_LINES = 7  # Header length of Top command
+    CPU_COLUMN_INDEX = 8  # Index of column CPU  into TOP command information
 
-    logging.info(f"Connecting to {ip} to retrieve top information.")
+    logging.debug(f"Connecting to {ip} to retrieve top information.")
 
     client = ""
     result = ""
@@ -298,7 +299,13 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         # Connect using the username and password
-        client.connect(ip, username=username, password=password)
+        client.connect(
+            ip,
+            username=username,
+            password=password,
+            look_for_keys=False,
+            allow_agent=False,
+        )
 
         # Run top command with batch mode
         command = "top -b -n 1"  # Use `-b` for batch mode and `-n 1` to limit to one iteration
@@ -322,7 +329,9 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
             for line in lines[TOP_PROCESS_LINES:]
             if line and not line.startswith("top")
         ]
-        process_lines.sort(key=lambda x: float(x.split()[8]), reverse=True)
+        process_lines.sort(
+            key=lambda x: float(x.split()[CPU_COLUMN_INDEX]), reverse=True
+        )
         cpu_intense_processes = "\n".join(process_lines[:TOP_PROCESS_LINES])
 
         result = f"{top_header}\n\nTop CPU-intensive processes (by %CPU):\n{cpu_intense_processes}\n\n"
@@ -332,7 +341,7 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
 
     finally:
         if client:
-            logging.info(f"Closing SSH connection to {ip}.")
+            logging.debug(f"Closing SSH connection to {ip}.")
             client.close()
 
         return result
@@ -397,7 +406,7 @@ def main(ip: str, username: str, password: str) -> None:
         stats.unlock()
 
     except KeyboardInterrupt:
-        logging.info("Script interrupted by user.")
+        logging.error("Script interrupted by user.")
         sys.exit(1)
 
     except Exception as e:
