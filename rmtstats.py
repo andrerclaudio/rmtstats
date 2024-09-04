@@ -105,6 +105,7 @@ class FetchRemoteStats(threading.Thread):
         Args:
             ip (str): The IP address of the remote server.
             user (str): The username for authentication.
+            password (str): The password for authentication.
         """
         super().__init__(name="RmstStats")
 
@@ -213,58 +214,11 @@ def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
     return True
 
 
-def fetch_uname_info(ip: str, username: str, key_file: str = None) -> str:
-    """
-    Fetch the uname information from the target machine via SSH.
+class TopCommandError(Exception):
+    """Exception raised for errors in the `top` command execution."""
 
-    Args:
-        ip (str): IP address of the target machine.
-        username (str): SSH username.
-        key_file (str, optional): Path to the private key file. Defaults to None, using the default SSH key.
-
-    Returns:
-        str: The output of the uname -a command.
-    """
-
-    logging.debug(f"Connecting to {ip} to retrieve uname information.")
-
-    # Initialize the  client to None
-    client = None
-
-    try:
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-        # Load SSH key from the keyring or a specified key file
-        if key_file:
-            private_key = paramiko.RSAKey.from_private_key_file(key_file)
-        else:
-            private_key = None  # Use the default key from SSH agent
-
-        client.connect(ip, username=username, pkey=private_key)
-
-        stdin, stdout, stderr = client.exec_command("uname -a")
-
-        # Read the command output
-        uname_output = stdout.read().decode()
-        error_output = stderr.read().decode()
-
-        if error_output:
-            logging.error(f"Error fetching uname output: {error_output}")
-            return ""
-
-        logging.debug(f"Successfully fetched uname output from {ip}.")
-        return uname_output
-
-    except paramiko.SSHException as e:
-        logging.error(f"SSH connection failed: {e}")
-        return ""
-
-    finally:
-        if client:
-            # Don't forget to close the connection
-            logging.debug(f"Closing SSH connection to {ip}.")
-            client.close()
+    def __init__(self, message: str):
+        super().__init__(message)
 
 
 def fetch_top_info(ip: str, username: str, password: str) -> str:
@@ -272,8 +226,8 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
     Fetch the top information from a target machine via SSH.
 
     This function connects to a remote machine using SSH, executes the `top` command
-    in batch mode, retrieves the output, processes it to extract the header and
-    the top CPU-intensive processes, and returns this information as a formatted string.
+    in batch mode, retrieves the output, and returns it as a formatted string. The
+    number of process lines is limited to TOP_PROCESS__QTY, without sorting.
 
     Args:
         ip (str): The IP address of the target machine.
@@ -281,13 +235,14 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
         password (str): The password to use for the SSH connection.
 
     Returns:
-        str: The formatted string containing the top command's header and the top CPU-intensive
-             processes. Returns `None` if there was an error during the connection or command execution.
+        str: The formatted string containing the top command's header and a limited number of processes.
+
+    Raises:
+        TopCommandError: If there is an error while executing the `top` command.
     """
 
-    TOP_PROCESS_LINES = 7  # Number of lines to retrieve from the top command
-    TOP_HEADER_LINES = 7  # Header length of Top command
-    CPU_COLUMN_INDEX = 8  # Index of column CPU  into TOP command information
+    TOP_PROCESS__QTY = 7  # Number of process lines to retrieve from the top command
+    TOP_HEADER__LENGHT = 7  # Header length of Top command
 
     logging.debug(f"Connecting to {ip} to retrieve top information.")
 
@@ -298,7 +253,7 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        # Connect using the username and password
+        # Connect using the username and password only
         client.connect(
             ip,
             username=username,
@@ -307,8 +262,8 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
             allow_agent=False,
         )
 
-        # Run top command with batch mode
-        command = "top -b -n 1"  # Use `-b` for batch mode and `-n 1` to limit to one iteration
+        # Run top command with batch mode and sort by memory usage
+        command = "top -b -n 1 -o %MEM"  # Use `-b` for batch mode, `-n 1` to limit to one iteration, `-o %MEM` to sort by memory usage
 
         stdin, stdout, stderr = client.exec_command(command)
 
@@ -317,27 +272,34 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
         error_output = stderr.read().decode()
 
         if error_output:
-            logging.error(f"Error fetching top output: {error_output}")
+            raise TopCommandError(f"Error fetching top output: {error_output}")
 
         logging.debug(f"Successfully fetched top output from {ip}.")
 
-        # Process the output to get the TOP_PROCESS_LINES number of lines and most CPU-intensive processes
-        lines = top_output.splitlines()
-        top_header = "\n".join(lines[:TOP_HEADER_LINES])
+        # Process the output to get the TOP_PROCESS__QTY number of lines without sorting
+        lines = top_output.splitlines()  # Split the output into lines
+        top_header = "\n".join(lines[:TOP_HEADER__LENGHT])  # Extract header lines
         process_lines = [
             line
-            for line in lines[TOP_PROCESS_LINES:]
-            if line and not line.startswith("top")
-        ]
-        process_lines.sort(
-            key=lambda x: float(x.split()[CPU_COLUMN_INDEX]), reverse=True
-        )
-        cpu_intense_processes = "\n".join(process_lines[:TOP_PROCESS_LINES])
+            for line in lines[TOP_HEADER__LENGHT:]
+            if line
+            and not line.startswith("top")  # Filter out empty lines and header lines
+        ][
+            :TOP_PROCESS__QTY
+        ]  # Limit to TOP_PROCESS__QTY number of lines
 
-        result = f"{top_header}\n\nTop CPU-intensive processes (by %CPU):\n{cpu_intense_processes}\n\n"
+        process_lines_output = "\n".join(process_lines)  # Join the filtered lines
+
+        result = f"{top_header}\n\nProcesses (limited to {TOP_PROCESS__QTY} lines) by %MEM:\n{process_lines_output}\n\n"
 
     except paramiko.SSHException as e:
         logging.error(f"SSH connection failed: {e}")
+        # SSH connection errors are logged, but the result remains an empty string
+
+    except TopCommandError as e:
+        logging.error(f"Top command error: {e}")
+        # Handle TopCommandError here (e.g., raise the error)
+        raise e
 
     finally:
         if client:
