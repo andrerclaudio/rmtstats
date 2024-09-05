@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+from gi.repository import GLib
+from gi.repository import Gdk
+
 import argparse
 from functools import partial
 import logging
@@ -9,10 +16,7 @@ import sys
 import paramiko
 from time import sleep
 import threading
-import gi
-
-gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, GLib, Gdk
+import signal
 
 # Configure logging
 logging.basicConfig(
@@ -331,6 +335,15 @@ def update_label(window, stats) -> bool:
     return True  # Continue calling this function
 
 
+# Signal handler
+def app_signal_handler(signum, frame, app: Gtk.Application) -> None:
+    """
+    Signal handler for SIGINT (CTRL+C).
+    """
+    logging.info("Stopping application by user request.")
+    app.quit()  # Quit the GTK application
+
+
 def main(ip: str, username: str, password: str) -> None:
     """
     Main entry point for the application.
@@ -362,14 +375,15 @@ def main(ip: str, username: str, password: str) -> None:
         app.connect("activate", partial(on_activate, window=window))
         # Create a GLib timeout to update the label every second
         GLib.timeout_add_seconds(1, lambda: update_label(window, stats))
+        # add signal to catch CRTL+C
+        signal.signal(
+            signal.SIGINT,
+            lambda sig, frame: app_signal_handler(sig, frame, app),
+        )
         # Run the GTK application
         app.run(None)
         # Stop the FetchRemoteStats thread after the application quits
         stats.unlock()
-
-    except KeyboardInterrupt:
-        logging.error("Script interrupted by user.")
-        sys.exit(1)
 
     except Exception as e:
         logging.error(f"An error occurred: {e}")
