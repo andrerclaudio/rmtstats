@@ -26,28 +26,43 @@ logging.basicConfig(
 
 class BoxedLabel(Gtk.Window):
     """
-    A GTK window to display remote statistics.
+    A GTK window to display remote statistics in a styled label.
+    The window is customized with CSS and dynamically updates the label's content.
     """
 
-    def __init__(self):
+    def __init__(self, app):
+        """
+        Initialize the BoxedLabel window.
+
+        Args:
+            app (Gtk.Application): The GTK application instance, used to quit the app when the window is closed.
+        """
         super().__init__(title="--- Remote Stats ---")
         self.set_default_size(480, 183)  # Set the window size to 480x183
 
-        # Create a label with custom formatting
+        # Store the reference to the application for later use (quitting the app)
+        self.app = app
+
+        # Connect the delete-event signal to handle window close events
+        self.connect("delete-event", self.on_close)
+
+        # Create and configure the label to display the remote statistics
         self.label = Gtk.Label()
         self.label.set_xalign(0)  # Align text to the left
         self.label.set_yalign(0)  # Align text to the top
-        self.label.set_justify(Gtk.Justification.LEFT)
-        self.label.set_line_wrap(True)
-        self.label.set_name("label")  # Assign a name to the label for CSS
+        self.label.set_justify(Gtk.Justification.LEFT)  # Left justify text
+        self.label.set_line_wrap(True)  # Enable line wrapping for long text
+        self.label.set_name("label")  # Set a name for the label (for CSS styling)
 
-        # Create a container to hold the label
+        # Create a vertical box to contain the label
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.box.pack_start(self.label, True, True, 10)
-        self.add(self.box)
-        self.set_name("window")  # Assign a name to the window for CSS
+        self.box.pack_start(
+            self.label, True, True, 10
+        )  # Add the label to the box with padding
+        self.add(self.box)  # Add the box to the window
+        self.set_name("window")  # Set a name for the window (for CSS styling)
 
-        # Dynamic CSS string with font size
+        # Dynamic CSS string for window and label appearance
         self.css = """
         window {
             background-color: black;
@@ -59,47 +74,70 @@ class BoxedLabel(Gtk.Window):
         }
         """
 
-        # Load and apply the CSS
+        # Load and apply the defined CSS
         self.load_css()
 
-        # Show all components
+        # Display all components
         self.show_all()
-        self.fullscreen()  # Make the window full screen
+
+        # Make the window full-screen
+        self.fullscreen()
 
     def load_css(self):
         """
-        Load and apply CSS style with dynamic font size.
+        Load and apply CSS styling to the window and its components.
+        This uses a dynamic CSS string defined in the 'css' attribute.
         """
         css_provider = Gtk.CssProvider()
-
         css_provider.load_from_data(self.css.encode("utf-8"))
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(),
             css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
-        logging.info("CSS loaded and applied")
+        logging.info("CSS loaded and applied successfully.")
 
     def update_text(self, text):
-        # Update the label text
+        """
+        Update the label text with formatted content.
+
+        Args:
+            text (str): The text to display in the label. It will be formatted and safely escaped for markup.
+        """
+        # Escape and format the text for markup display (white text on a black background)
         formatted_text = f"<span foreground='white' background='black'><tt>{GLib.markup_escape_text(text)}</tt></span>"
         self.label.set_markup(formatted_text)
+
+    def on_close(self, widget, event) -> bool:
+        """
+        Handle the window close event and perform any necessary cleanup before exiting.
+
+        Args:
+            widget (Gtk.Widget): The widget triggering the event.
+            event (Gdk.Event): The event object associated with the close action.
+
+        Returns:
+            bool: Return False to allow the window to close.
+        """
+        logging.info("Performing cleanup before exiting the application.")
+        self.app.quit()  # Quit the GTK application
+        return False  # Returning False allows the window to close
 
 
 class FetchRemoteStats(threading.Thread):
     """
     A thread that fetches remote statistics from a specified IP address.
 
-    This class inherits from `threading.Thread` and runs in a separate thread to
-    periodically fetch information from a remote server. It updates the stored
-    information and handles errors during the fetching process.
+    This class runs in a separate thread and periodically retrieves information
+    from a remote server. It updates the stored information and handles errors
+    during the fetching process.
 
     Attributes:
-        ip (str): The IP address of the remote server to fetch information from.
-        user (str): The username for authentication to the remote server.
-        password (str): The password for authentication to the remote server.
+        ip (str): The IP address of the remote server.
+        username (str): The username for SSH authentication to the remote server.
+        password (str): The password for SSH authentication to the remote server.
         __info (str): The most recent information fetched from the remote server.
-        __lock (bool): A flag to control the fetching loop.
+        __lock (bool): A flag to control the fetching loop (True to keep running).
     """
 
     def __init__(self, ip: str, user: str, password: str) -> None:
@@ -108,63 +146,73 @@ class FetchRemoteStats(threading.Thread):
 
         Args:
             ip (str): The IP address of the remote server.
-            user (str): The username for authentication.
-            password (str): The password for authentication.
+            user (str): The username for SSH authentication.
+            password (str): The password for SSH authentication.
         """
         super().__init__(name="RmstStats")
 
+        # Store the server IP, username, and password for fetching remote stats
         self.ip = ip
         self.username = user
         self.password = password
+
+        # Default message before fetching any data
         self.__info = "The screen will update soon!"
+
+        # Control flag for the fetching loop
         self.__lock = True
 
-        # Start the thread
+        # Start the thread immediately after initialization
         self.start()
 
     def run(self) -> None:
         """
-        The method that runs in the thread. Continuously fetches information from the remote server
-        as long as the __lock attribute is True. Logs status updates and handles errors.
+        Main method that runs in the thread. Fetches remote statistics continuously
+        as long as __lock is True. Logs status updates and handles errors.
         """
         try:
-            logging.info("Start fetching ...")
+            logging.info("Start fetching remote stats...")
 
             while self.__lock:
-
+                # Check if the target server is online
                 if check_target_is_online(ip=self.ip):
-                    logging.debug("Target available, proceeding to fetch information.")
+                    logging.debug("Target is online, proceeding to fetch information.")
+
+                    # Fetch the top process info from the remote server
                     info = fetch_top_info(
                         ip=self.ip, username=self.username, password=self.password
                     )
 
+                    # Update the stored information or log an error if fetching failed
                     if info:
                         self.__info = info
                     else:
                         self.__info = "Failed to retrieve information."
                         logging.error(self.__info)
 
-                    # Wait one second before the next fetch attempt
+                    # Wait one second before fetching the next set of stats
                     sleep(1)
 
                 else:
-                    self.__info = "Target unavailable, retrying ..."
+                    # Update status if the target is unavailable
+                    self.__info = "Target unavailable, retrying..."
                     logging.debug(self.__info)
+
                     # Wait two seconds before retrying
                     sleep(2)
 
-            logging.info("Stop fetching ...")
+            logging.info("Stopped fetching remote stats.")
 
         except threading.ThreadError as e:
-            logging.error(f"An error occurred: {e}")
+            logging.error(f"An error occurred during the thread operation: {e}")
             sys.exit(1)
 
     def get(self) -> str:
         """
-        Retrieve the most recent information fetched.
+        Retrieve the most recent information fetched from the remote server.
 
         Returns:
-            str: The most recent information fetched from the remote server.
+            str: The latest fetched information.
         """
         return self.__info
 
@@ -177,40 +225,47 @@ class FetchRemoteStats(threading.Thread):
 
 def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
     """
-    Check if the target is online by pinging it.
+    Check if the target machine is online by sending a ping request.
+
+    This function attempts to ping the target machine up to the specified number of retries.
+    It returns True if the target responds within the timeout, and False otherwise.
 
     Args:
-        ip (str): IP address of the target machine.
-        timeout (int, optional): Timeout in seconds. Defaults to 3.
-        retries (int, optional): Number of retries before considering the target as offline. Defaults to 3.
+        ip (str): The IP address of the target machine to ping.
+        timeout (int, optional): Timeout in seconds for each ping attempt. Defaults to 3 seconds.
+        retries (int, optional): The number of retries to attempt before considering the target offline. Defaults to 3.
 
     Returns:
-        bool: True if the target is online, False otherwise.
+        bool: True if the target responds to ping, False if it does not after the retries.
     """
 
-    logging.debug(f"Checking if {ip} is online ...")
+    logging.debug(f"Checking if {ip} is online...")
 
-    # Initialise the returncode to False
+    # Initialise the return code to indicate failure (offline)
     returncode = False
 
-    # Linux-specific ping command
+    # Linux-specific ping command with a single ping (-c 1) and a timeout (-w timeout)
     cmd = ["ping", "-c", "1", "-w", str(timeout), ip]
 
+    # Attempt to ping the target machine up to the specified number of retries
     for i in range(1, retries + 1):
         logging.debug(f"Ping attempt {i} of {retries} to {ip}")
 
         try:
+            # Suppress the output of the ping command by redirecting it to /dev/null
             with open("/dev/null", "w") as devnull:
                 returncode = subprocess.call(cmd, stdout=devnull, stderr=devnull) == 0
 
+            # If the ping is successful, break the loop
             if returncode:
                 logging.debug(f"Target {ip} is online on attempt {i}.")
                 break
 
         except OSError as e:
-            logging.error(f"An OS error occurred: {e}")
-            return False
+            logging.error(f"An OS error occurred while pinging: {e}")
+            return False  # Return False if an OSError occurs
 
+    # Log and return False if the target did not respond after all retries
     if not returncode:
         logging.info(f"Couldn't reach target {ip} after {retries} attempts.")
         return False
@@ -219,7 +274,7 @@ def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
 
 
 class TopCommandError(Exception):
-    """Exception raised for errors in the `top` command execution."""
+    """Exception raised for errors during the execution of the `top` command."""
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -227,37 +282,39 @@ class TopCommandError(Exception):
 
 def fetch_top_info(ip: str, username: str, password: str) -> str:
     """
-    Fetch the top information from a target machine via SSH.
+    Fetch the top process information from a target machine via SSH.
 
-    This function connects to a remote machine using SSH, executes the `top` command
-    in batch mode, retrieves the output, and returns it as a formatted string. The
-    number of process lines is limited to TOP_PROCESS__QTY, without sorting.
+    This function connects to a remote machine using SSH, runs the `top` command in batch mode,
+    and retrieves its output. It formats the output to include the top command header and limits
+    the number of displayed process lines to a predefined quantity. The processes are listed
+    in the order of memory usage.
 
     Args:
-        ip (str): The IP address of the target machine.
-        username (str): The username to use for the SSH connection.
-        password (str): The password to use for the SSH connection.
+        ip (str): The IP address of the remote machine.
+        username (str): The SSH username for authentication.
+        password (str): The SSH password for authentication.
 
     Returns:
-        str: The formatted string containing the top command's header and a limited number of processes.
+        str: A formatted string containing the top command's header and a limited number of process lines.
 
     Raises:
-        TopCommandError: If there is an error while executing the `top` command.
+        TopCommandError: If there is an error during the execution of the `top` command.
     """
 
-    TOP_PROCESS__QTY = 7  # Number of process lines to retrieve from the top command
-    TOP_HEADER__LENGHT = 7  # Header length of Top command
+    TOP_PROCESS_QTY = 7  # Number of process lines to retrieve from the top command
+    TOP_HEADER_LENGTH = 7  # Header length of top command output
 
-    logging.debug(f"Connecting to {ip} to retrieve top information.")
+    logging.debug(f"Connecting to {ip} to retrieve top command information.")
 
-    client = ""
+    client = None
     result = ""
 
     try:
+        # Set up SSH client and configure to accept unknown host keys
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        # Connect using the username and password only
+        # Connect to the remote machine using username and password
         client.connect(
             ip,
             username=username,
@@ -266,46 +323,53 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
             allow_agent=False,
         )
 
-        # Run top command with batch mode and sort by memory usage
-        command = "top -b -n 1 -o %MEM"  # Use `-b` for batch mode, `-n 1` to limit to one iteration, `-o %MEM` to sort by memory usage
+        # Command to run top in batch mode (-b), limit to one iteration (-n 1), and sort by memory usage (-o %MEM)
+        command = "top -b -n 1 -o %MEM"
 
         stdin, stdout, stderr = client.exec_command(command)
 
-        # Read the command output
-        top_output = stdout.read().decode()
+        # Read the command output and error output
+        top_output = stdout.read().decode()  # Read and decode the output of top command
         error_output = stderr.read().decode()
 
+        # Raise an error if there is any stderr output from the command
         if error_output:
             raise TopCommandError(f"Error fetching top output: {error_output}")
 
         logging.debug(f"Successfully fetched top output from {ip}.")
 
-        # Process the output to get the TOP_PROCESS__QTY number of lines without sorting
-        lines = top_output.splitlines()  # Split the output into lines
-        top_header = "\n".join(lines[:TOP_HEADER__LENGHT])  # Extract header lines
+        # Split the output into lines and extract the top header and process lines
+        lines = top_output.splitlines()
+        top_header = "\n".join(lines[:TOP_HEADER_LENGTH])  # Extract the header section
+
+        # Extract process lines, filtering out empty lines and redundant header information
         process_lines = [
             line
-            for line in lines[TOP_HEADER__LENGHT:]
-            if line
-            and not line.startswith("top")  # Filter out empty lines and header lines
+            for line in lines[TOP_HEADER_LENGTH:]
+            if line and not line.startswith("top")
         ][
-            :TOP_PROCESS__QTY
-        ]  # Limit to TOP_PROCESS__QTY number of lines
+            :TOP_PROCESS_QTY
+        ]  # Limit the number of process lines
 
-        process_lines_output = "\n".join(process_lines)  # Join the filtered lines
+        # Join the processed lines into a formatted output
+        process_lines_output = "\n".join(process_lines)
 
-        result = f"{top_header}\n\nProcesses (limited to {TOP_PROCESS__QTY} lines) by %MEM:\n{process_lines_output}\n\n"
+        result = (
+            f"{top_header}\n\nProcesses (limited to {TOP_PROCESS_QTY} lines) by %MEM:\n"
+            f"{process_lines_output}\n\n"
+        )
 
     except paramiko.SSHException as e:
+        # Log SSH connection failures
         logging.error(f"SSH connection failed: {e}")
-        # SSH connection errors are logged, but the result remains an empty string
 
     except TopCommandError as e:
+        # Log top command errors and re-raise the exception
         logging.error(f"Top command error: {e}")
-        # Handle TopCommandError here (e.g., raise the error)
         raise e
 
     finally:
+        # Close the SSH connection if it was opened
         if client:
             logging.debug(f"Closing SSH connection to {ip}.")
             client.close()
@@ -313,117 +377,147 @@ def fetch_top_info(ip: str, username: str, password: str) -> str:
         return result
 
 
-def on_activate(application, window) -> None:
+def on_activate(application, window: BoxedLabel) -> None:
     """
     Signal handler for the 'activate' signal of the Gtk.Application.
-    Initializes and shows the BoxedLabel window.
+
+    This function is called when the application is started. It sets the application
+    to the provided `BoxedLabel` window and presents the window to the user.
+
+    Args:
+        application (Gtk.Application): The main Gtk application instance.
+        window (BoxedLabel): The window that displays the fetched remote statistics.
     """
     window.set_application(application)
     window.present()
 
 
-def update_label(window, stats) -> bool:
+def update_label(window: BoxedLabel, stats: FetchRemoteStats) -> bool:
     """
-    Signal handler for the GLib timeout signal. Updates the text of the label window
-    if it is open.
+    Updates the text label with fetched remote statistics at regular intervals.
 
-    Returns: True if the loop should continue, False to exit.
+    This function is periodically called by GLib's timeout mechanism to update the
+    label's content with the most recent remote statistics. It continues to be
+    called while the window is open.
+
+    Args:
+        window (BoxedLabel): The window displaying the statistics.
+        stats (FetchRemoteStats): The thread fetching remote statistics.
+
+    Returns:
+        bool: Always returns True to keep the timeout active.
     """
     if window:
-        # Update the text of the window if it is open
+        # Update the label text with the latest fetched statistics
         window.update_text(stats.get())
-    return True  # Continue calling this function
+    return True  # Continue the periodic updates
 
 
-# Signal handler
 def app_signal_handler(signum, frame, app: Gtk.Application) -> None:
     """
-    Signal handler for SIGINT (CTRL+C).
+    Handle signals (like SIGINT) to gracefully stop the application.
+
+    This function is triggered when the user sends an interrupt signal (like CTRL+C).
+    It logs a shutdown message and quits the Gtk application cleanly.
+
+    Args:
+        signum (int): The signal number (e.g., SIGINT).
+        frame: The current stack frame (not used).
+        app (Gtk.Application): The Gtk application to quit.
     """
     logging.info("Stopping application by user request.")
-    app.quit()  # Quit the GTK application
+    app.quit()
 
 
 def main(ip: str, username: str, password: str) -> None:
     """
-    Main entry point for the application.
+    Main function that initializes and runs the application.
 
-    Initializes the FetchRemoteStats thread to fetch remote statistics
-    and sets up a Gtk application to display the information. The application
-    updates the displayed information every second.
+    This function starts the `FetchRemoteStats` thread, sets up the Gtk application
+    with a window to display the fetched data, and updates the display every second.
+    It also captures keyboard interrupts (CTRL+C) to stop the application gracefully.
 
     Args:
-        ip (str): The IP address of the remote server to fetch information from.
-        username (str): The username for authentication to the remote server.
-        password (str): The password for authentication to the remote server.
+        ip (str): The IP address of the remote server to monitor.
+        username (str): Username for SSH authentication.
+        password (str): Password for SSH authentication.
 
     Exits:
-        sys.exit(0) if the application finishes successfully.
-        sys.exit(1) if an error occurs.
+        sys.exit(0): If the application completes successfully.
+        sys.exit(1): If an error occurs during execution.
     """
-
     try:
         logging.info("rmtstats is running")
 
-        # Initialize the FetchRemoteStats thread
+        # Initialize the thread that fetches remote statistics
         stats = FetchRemoteStats(ip=ip, user=username, password=password)
-        # Create the GTK application
+
+        # Create a new Gtk application instance
         app = Gtk.Application()
-        # Initialize the BoxedLabel window
-        window = BoxedLabel()
-        # Connect the activate signal to the handler using partial to pass window
+
+        # Create the window for displaying statistics
+        window = BoxedLabel(app)
+
+        # Connect the Gtk application 'activate' signal to the on_activate handler
         app.connect("activate", partial(on_activate, window=window))
-        # Create a GLib timeout to update the label every second
+
+        # Set up a GLib timeout to periodically update the window's label every second
         GLib.timeout_add_seconds(1, lambda: update_label(window, stats))
-        # add signal to catch CRTL+C
+
+        # Handle the SIGINT (CTRL+C) signal to quit the application
         signal.signal(
             signal.SIGINT,
             lambda sig, frame: app_signal_handler(sig, frame, app),
         )
-        # Run the GTK application
+
+        # Run the Gtk application
         app.run(None)
-        # Stop the FetchRemoteStats thread after the application quits
+
+        # Stop the FetchRemoteStats thread after the Gtk application quits
         stats.unlock()
 
     except Exception as e:
+        # Log the exception and exit with an error code
         logging.error(f"An error occurred: {e}")
         sys.exit(1)
 
+    # Log successful completion of the application
     logging.info("rmtstats finished successfully.")
     sys.exit(0)
 
 
 if __name__ == "__main__":
     """
-    Entry point for the script when executed directly.
+    Entry point for the script when run as the main module.
 
-    Parses command-line arguments for the IP address, username, and password,
-    validates the arguments, and calls the main function to start
-    the remote stats monitoring application.
+    Parses the command-line arguments for the IP address, username, and password,
+    validates them, and then calls the main function to start the application.
 
     Command-line arguments:
-        --ip (str): The IP address of the target server.
-        --user (str): The username for authentication.
-        --password (str): The password for authentication.
+        --ip (str): The IP address of the remote server to fetch statistics from.
+        --user (str): The username for SSH authentication.
+        --password (str): The password for SSH authentication.
 
     Exits:
-        sys.exit(1) if required arguments are missing or invalid.
+        sys.exit(1): If any required argument is missing or invalid.
     """
     parser = argparse.ArgumentParser(description="Remote stats monitoring script.")
 
-    # Define command-line arguments
+    # Add required command-line arguments
     parser.add_argument("--ip", required=True, help="IP address of the target server.")
-    parser.add_argument("--user", required=True, help="Username for authentication.")
     parser.add_argument(
-        "--password", required=True, help="Password for authentication."
+        "--user", required=True, help="Username for SSH authentication."
+    )
+    parser.add_argument(
+        "--password", required=True, help="Password for SSH authentication."
     )
 
-    # Parse arguments
+    # Parse the arguments from the command line
     args = parser.parse_args()
 
-    # Check if required arguments are present
+    # Ensure all required arguments are provided
     if not args.ip or not args.user or not args.password:
-        parser.error("Both --ip, --user, and --password are required.")
+        parser.error("The --ip, --user, and --password arguments are required.")
 
-    # Call the main function with parsed arguments
+    # Start the main application with the parsed arguments
     main(args.ip, args.user, args.password)
