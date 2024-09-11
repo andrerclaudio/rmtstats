@@ -449,6 +449,12 @@ def main(ip: str, username: str, password: str) -> None:
     try:
         logging.info("rmtstats is running")
 
+        # Check if Gtk can be initialized
+        success, error = Gtk.init_check()
+        if not success:
+            logging.error(f"Failed to initialize Gtk: {error}")
+            sys.exit(1)
+
         # Initialize the thread that fetches remote statistics
         stats = FetchRemoteStats(ip=ip, user=username, password=password)
 
