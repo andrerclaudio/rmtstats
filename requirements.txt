@@ -1,3 +1,4 @@
 paramiko
 requests
 PyGObject
+psutil

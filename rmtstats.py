@@ -134,11 +134,22 @@ class BoxedLabel(Gtk.Window):
 
 
 class CheckStatus(object):
-    """ """
+    """
+    A class to check the status of a network interface and ping a target machine.
+
+    Attributes:
+        ip (str): The IP address to ping.
+        interface_name (str): The name of the network interface to check. Defaults to 'tun0'.
+    """
 
     def __init__(self, ip: str, interface_name: str = "tun0") -> None:
-        """ """
+        """
+        Initialize the CheckStatus object.
 
+        Args:
+            ip (str): The IP address to check for connectivity.
+            interface_name (str, optional): The name of the network interface to check. Defaults to 'tun0'.
+        """
         self.ip = ip
         self.interface_name = interface_name
 
@@ -146,11 +157,10 @@ class CheckStatus(object):
         """
         Check the status of a network interface.
 
-        Args:
-            interface_name (str): The name of the network interface to check.
+        This method verifies if the specified network interface is up and has an assigned IP address.
 
         Returns:
-            bool: True if the interface has an IP address assigned and is up, False otherwise.
+            bool: True if the interface is up and has an IP address assigned, False otherwise.
         """
         try:
             # Get all network interfaces and their addresses
@@ -164,7 +174,7 @@ class CheckStatus(object):
             # Get the addresses for the interface
             interface_addrs = addrs[self.interface_name]
 
-            # Check for assigned IP address
+            # Check for assigned IP address (IPv4)
             ip_assigned = False
             for addr in interface_addrs:
                 if addr.family == socket.AF_INET:
@@ -173,6 +183,7 @@ class CheckStatus(object):
                     )
                     ip_assigned = True
 
+            # If no IP is assigned, return False
             if not ip_assigned:
                 logging.debug(
                     f"Interface {self.interface_name} does not have an IP address assigned."
@@ -187,12 +198,15 @@ class CheckStatus(object):
                 logging.debug(f"Interface {self.interface_name} is down.")
                 return False
 
+        # Handle key errors from the psutil library
         except KeyError as e:
             logging.error(f"KeyError occurred: {e}")
             return False
+        # Handle general psutil errors
         except psutil.Error as e:
             logging.error(f"psutil.Error occurred: {e}")
             return False
+        # Catch any other unexpected errors
         except Exception as e:
             logging.error(f"An unexpected error occurred: {e}")
             return False
@@ -201,21 +215,19 @@ class CheckStatus(object):
         """
         Check if the target machine is online by sending a ping request.
 
-        This function attempts to ping the target machine up to the specified number of retries.
+        This method attempts to ping the target machine up to the specified number of retries.
         It returns True if the target responds within the timeout, and False otherwise.
 
         Args:
-            ip (str): The IP address of the target machine to ping.
             timeout (int, optional): Timeout in seconds for each ping attempt. Defaults to 3 seconds.
             retries (int, optional): The number of retries to attempt before considering the target offline. Defaults to 3.
 
         Returns:
             bool: True if the target responds to ping, False if it does not after the retries.
         """
-
         logging.debug(f"Checking if {self.ip} is online...")
 
-        # Initialise the return code to indicate failure (offline)
+        # Default return value indicating the target is offline
         returncode = False
 
         # Linux-specific ping command with a single ping (-c 1) and a timeout (-w timeout)
@@ -232,14 +244,15 @@ class CheckStatus(object):
                         subprocess.call(cmd, stdout=devnull, stderr=devnull) == 0
                     )
 
-                # If the ping is successful, break the loop
+                # If the ping is successful, stop retrying
                 if returncode:
                     logging.debug(f"Target {self.ip} is online on attempt {i}.")
                     break
 
+            # Handle OS-level errors
             except OSError as e:
                 logging.error(f"An OS error occurred while pinging: {e}")
-                return False  # Return False if an OSError occurs
+                return False
 
         # Log and return False if the target did not respond after all retries
         if not returncode:
@@ -276,12 +289,11 @@ class FetchRemoteStats(threading.Thread):
         """
         super().__init__(name="RmstStats")
 
-        # Store the server IP, username, and password for fetching remote stats
         self.ip = ip
         self.username = user
         self.password = password
 
-        #
+        # Instantiate the CheckStatus object for checking network status
         self.check_status = CheckStatus(ip=ip)
 
         # Default message before fetching any data
@@ -299,21 +311,20 @@ class FetchRemoteStats(threading.Thread):
         as long as __lock is True. Logs status updates and handles errors.
         """
         try:
-
+            # Loop to check if the interface is operational before fetching data
             while self.__lock:
-                # Check if the hardware interface is ready
                 if self.check_status.interface():
                     logging.info(
                         f"Interface {self.check_status.interface_name} is operational."
                     )
                     break
                 else:
-                    self.__info = f"Interface {self.check_status.interface_name} is not operational. Retring in 2 seconds ..."
+                    self.__info = f"Interface {self.check_status.interface_name} is not operational. Retrying in 2 seconds..."
                     logging.debug(self.__info)
                     sleep(2)
 
+            # Fetch remote statistics while __lock is True
             while self.__lock:
-                # Check if the target server is online
                 if self.check_status.target():
                     logging.debug("Target is online, proceeding to fetch information.")
 
@@ -333,11 +344,9 @@ class FetchRemoteStats(threading.Thread):
                     sleep(1)
 
                 else:
-                    # Update status if the target is unavailable
                     self.__info = "Target unavailable, retrying..."
                     logging.debug(self.__info)
 
-                    # Wait two seconds before retrying
                     sleep(2)
 
             logging.info("Stopped fetching remote stats.")
