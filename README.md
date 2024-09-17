@@ -19,8 +19,9 @@ rmtstats is a Python-based remote system monitoring tool that fetches and displa
 - Required Python packages:
   - gi (PyGObject)
   - paramiko
-  - argparse
+  - requests
   - logging
+  - psutil
 
 ## Installation
 
@@ -37,10 +38,10 @@ rmtstats is a Python-based remote system monitoring tool that fetches and displa
 
 ## Components
 
-- `BoxedLabel`: A GTK window class for displaying the remote statistics.
-- `FetchRemoteStats`: A thread class that continuously fetches remote stats.
-- `check_target_is_online`: A function to check if the remote server is reachable.
-- `fetch_top_info`: A function to retrieve and parse the `top` command output from the remote server.
+- `BoxedLabel`: This is a GTK window class used to display remote statistics.
+- `FetchRemoteStats`: This class is a thread that continuously fetches remote stats from the server.
+- `CheckStatus`: This class checks the network interface status and pings the target machine to verify reachability.
+- `fetch_top_info`: This function retrieves and parses the `top` command output via SSH from a remote server.
 
 ## Error Handling
 
