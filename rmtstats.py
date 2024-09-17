@@ -17,11 +17,20 @@ import paramiko
 from time import sleep
 import threading
 import signal
+import psutil
+import socket
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+
+
+class TopCommandError(Exception):
+    """Exception raised for errors during the execution of the `top` command."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
 
 
 class BoxedLabel(Gtk.Window):
@@ -124,6 +133,122 @@ class BoxedLabel(Gtk.Window):
         return False  # Returning False allows the window to close
 
 
+class CheckStatus(object):
+    """ """
+
+    def __init__(self, ip: str, interface_name: str = "tun0") -> None:
+        """ """
+
+        self.ip = ip
+        self.interface_name = interface_name
+
+    def interface(self) -> bool:
+        """
+        Check the status of a network interface.
+
+        Args:
+            interface_name (str): The name of the network interface to check.
+
+        Returns:
+            bool: True if the interface has an IP address assigned and is up, False otherwise.
+        """
+        try:
+            # Get all network interfaces and their addresses
+            addrs = psutil.net_if_addrs()
+
+            # Check if the interface exists
+            if self.interface_name not in addrs:
+                logging.debug(f"Interface {self.interface_name} not found.")
+                return False
+
+            # Get the addresses for the interface
+            interface_addrs = addrs[self.interface_name]
+
+            # Check for assigned IP address
+            ip_assigned = False
+            for addr in interface_addrs:
+                if addr.family == socket.AF_INET:
+                    logging.debug(
+                        f"Interface {self.interface_name} has IP address: {addr.address}"
+                    )
+                    ip_assigned = True
+
+            if not ip_assigned:
+                logging.debug(
+                    f"Interface {self.interface_name} does not have an IP address assigned."
+                )
+                return False
+
+            # Check if the interface is up
+            if psutil.net_if_stats()[self.interface_name].isup:
+                logging.debug(f"Interface {self.interface_name} is up.")
+                return True
+            else:
+                logging.debug(f"Interface {self.interface_name} is down.")
+                return False
+
+        except KeyError as e:
+            logging.error(f"KeyError occurred: {e}")
+            return False
+        except psutil.Error as e:
+            logging.error(f"psutil.Error occurred: {e}")
+            return False
+        except Exception as e:
+            logging.error(f"An unexpected error occurred: {e}")
+            return False
+
+    def target(self, timeout: int = 3, retries: int = 3) -> bool:
+        """
+        Check if the target machine is online by sending a ping request.
+
+        This function attempts to ping the target machine up to the specified number of retries.
+        It returns True if the target responds within the timeout, and False otherwise.
+
+        Args:
+            ip (str): The IP address of the target machine to ping.
+            timeout (int, optional): Timeout in seconds for each ping attempt. Defaults to 3 seconds.
+            retries (int, optional): The number of retries to attempt before considering the target offline. Defaults to 3.
+
+        Returns:
+            bool: True if the target responds to ping, False if it does not after the retries.
+        """
+
+        logging.debug(f"Checking if {self.ip} is online...")
+
+        # Initialise the return code to indicate failure (offline)
+        returncode = False
+
+        # Linux-specific ping command with a single ping (-c 1) and a timeout (-w timeout)
+        cmd = ["ping", "-c", "1", "-w", str(timeout), self.ip]
+
+        # Attempt to ping the target machine up to the specified number of retries
+        for i in range(1, retries + 1):
+            logging.debug(f"Ping attempt {i} of {retries} to {self.ip}")
+
+            try:
+                # Suppress the output of the ping command by redirecting it to /dev/null
+                with open("/dev/null", "w") as devnull:
+                    returncode = (
+                        subprocess.call(cmd, stdout=devnull, stderr=devnull) == 0
+                    )
+
+                # If the ping is successful, break the loop
+                if returncode:
+                    logging.debug(f"Target {self.ip} is online on attempt {i}.")
+                    break
+
+            except OSError as e:
+                logging.error(f"An OS error occurred while pinging: {e}")
+                return False  # Return False if an OSError occurs
+
+        # Log and return False if the target did not respond after all retries
+        if not returncode:
+            logging.info(f"Couldn't reach target {self.ip} after {retries} attempts.")
+            return False
+
+        return True
+
+
 class FetchRemoteStats(threading.Thread):
     """
     A thread that fetches remote statistics from a specified IP address.
@@ -156,6 +281,9 @@ class FetchRemoteStats(threading.Thread):
         self.username = user
         self.password = password
 
+        #
+        self.check_status = CheckStatus(ip=ip)
+
         # Default message before fetching any data
         self.__info = "The screen will update soon!"
 
@@ -171,11 +299,22 @@ class FetchRemoteStats(threading.Thread):
         as long as __lock is True. Logs status updates and handles errors.
         """
         try:
-            logging.info("Start fetching remote stats...")
+
+            while self.__lock:
+                # Check if the hardware interface is ready
+                if self.check_status.interface():
+                    logging.info(
+                        f"Interface {self.check_status.interface_name} is operational."
+                    )
+                    break
+                else:
+                    self.__info = f"Interface {self.check_status.interface_name} is not operational. Retring in 2 seconds ..."
+                    logging.debug(self.__info)
+                    sleep(2)
 
             while self.__lock:
                 # Check if the target server is online
-                if check_target_is_online(ip=self.ip):
+                if self.check_status.target():
                     logging.debug("Target is online, proceeding to fetch information.")
 
                     # Fetch the top process info from the remote server
@@ -221,63 +360,6 @@ class FetchRemoteStats(threading.Thread):
         Stop the fetching loop by setting the __lock attribute to False.
         """
         self.__lock = False
-
-
-def check_target_is_online(ip: str, timeout: int = 3, retries: int = 3) -> bool:
-    """
-    Check if the target machine is online by sending a ping request.
-
-    This function attempts to ping the target machine up to the specified number of retries.
-    It returns True if the target responds within the timeout, and False otherwise.
-
-    Args:
-        ip (str): The IP address of the target machine to ping.
-        timeout (int, optional): Timeout in seconds for each ping attempt. Defaults to 3 seconds.
-        retries (int, optional): The number of retries to attempt before considering the target offline. Defaults to 3.
-
-    Returns:
-        bool: True if the target responds to ping, False if it does not after the retries.
-    """
-
-    logging.debug(f"Checking if {ip} is online...")
-
-    # Initialise the return code to indicate failure (offline)
-    returncode = False
-
-    # Linux-specific ping command with a single ping (-c 1) and a timeout (-w timeout)
-    cmd = ["ping", "-c", "1", "-w", str(timeout), ip]
-
-    # Attempt to ping the target machine up to the specified number of retries
-    for i in range(1, retries + 1):
-        logging.debug(f"Ping attempt {i} of {retries} to {ip}")
-
-        try:
-            # Suppress the output of the ping command by redirecting it to /dev/null
-            with open("/dev/null", "w") as devnull:
-                returncode = subprocess.call(cmd, stdout=devnull, stderr=devnull) == 0
-
-            # If the ping is successful, break the loop
-            if returncode:
-                logging.debug(f"Target {ip} is online on attempt {i}.")
-                break
-
-        except OSError as e:
-            logging.error(f"An OS error occurred while pinging: {e}")
-            return False  # Return False if an OSError occurs
-
-    # Log and return False if the target did not respond after all retries
-    if not returncode:
-        logging.info(f"Couldn't reach target {ip} after {retries} attempts.")
-        return False
-
-    return True
-
-
-class TopCommandError(Exception):
-    """Exception raised for errors during the execution of the `top` command."""
-
-    def __init__(self, message: str):
-        super().__init__(message)
 
 
 def fetch_top_info(ip: str, username: str, password: str) -> str:
