@@ -319,7 +319,7 @@ class FetchRemoteStats(threading.Thread):
                     )
                     break
                 else:
-                    self.__info = f"Interface {self.check_status.interface_name} is not operational. Retrying in 2 seconds..."
+                    self.__info = f"Interface {self.check_status.interface_name} is not operational, retrying..."
                     logging.debug(self.__info)
                     sleep(2)
 
@@ -337,7 +337,7 @@ class FetchRemoteStats(threading.Thread):
                     if info:
                         self.__info = info
                     else:
-                        self.__info = "Failed to retrieve information."
+                        self.__info = "Failed to retrieve information, retrying..."
                         logging.error(self.__info)
 
                     # Wait one second before fetching the next set of stats
