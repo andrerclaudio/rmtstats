@@ -92,7 +92,7 @@ class BoxedLabel(Gtk.Window):
         """
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(
-            self.css.encode(), -1
+            self.css, -1
         )  # Pass CSS data and length (-1 for null-terminated)
         display = self.get_display()  # Get the display from the current window
         Gtk.StyleContext.add_provider_for_display(
