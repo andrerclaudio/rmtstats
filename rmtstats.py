@@ -88,14 +88,17 @@ class BoxedLabel(Gtk.Window):
 
     def load_css(self):
         """
-        Load and apply the dynamic CSS to style the window and label.
+        Load CSS data and apply it to the window.
         """
         css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(self.css.encode())
-
-        display = Gdk.Display.get_default()
+        css_provider.load_from_data(
+            self.css.encode(), -1
+        )  # Pass CSS data and length (-1 for null-terminated)
+        display = self.get_display()  # Get the display from the current window
         Gtk.StyleContext.add_provider_for_display(
-            display, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            display,
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
         logging.info("CSS loaded and applied successfully.")
 
