@@ -26,6 +26,13 @@ logging.basicConfig(
 )
 
 
+class TopCommandError(Exception):
+    """Exception raised for errors during the execution of the `top` command."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 class BoxedLabel(Gtk.Window):
     """
     A GTK window to display remote statistics in a styled label.
