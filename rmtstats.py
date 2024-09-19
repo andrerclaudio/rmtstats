@@ -3,7 +3,7 @@
 
 import gi
 
-gi.require_version("Gtk", "3.0")
+gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 from gi.repository import GLib
 from gi.repository import Gdk
@@ -26,13 +26,6 @@ logging.basicConfig(
 )
 
 
-class TopCommandError(Exception):
-    """Exception raised for errors during the execution of the `top` command."""
-
-    def __init__(self, message: str):
-        super().__init__(message)
-
-
 class BoxedLabel(Gtk.Window):
     """
     A GTK window to display remote statistics in a styled label.
@@ -47,28 +40,25 @@ class BoxedLabel(Gtk.Window):
             app (Gtk.Application): The GTK application instance, used to quit the app when the window is closed.
         """
         super().__init__(title="--- Remote Stats ---")
-        self.set_default_size(480, 183)  # Set the window size to 480x183
 
         # Store the reference to the application for later use (quitting the app)
         self.app = app
 
-        # Connect the delete-event signal to handle window close events
-        self.connect("delete-event", self.on_close)
+        # Connect the "close-request" signal to handle window close events
+        self.connect("close-request", self.on_close)
 
         # Create and configure the label to display the remote statistics
         self.label = Gtk.Label()
         self.label.set_xalign(0)  # Align text to the left
         self.label.set_yalign(0)  # Align text to the top
         self.label.set_justify(Gtk.Justification.LEFT)  # Left justify text
-        self.label.set_line_wrap(True)  # Enable line wrapping for long text
+        self.label.set_wrap(True)  # Enable line wrapping for long text
         self.label.set_name("label")  # Set a name for the label (for CSS styling)
 
         # Create a vertical box to contain the label
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.box.pack_start(
-            self.label, True, True, 10
-        )  # Add the label to the box with padding
-        self.add(self.box)  # Add the box to the window
+        self.box.append(self.label)  # Add the label to the box
+        self.set_child(self.box)  # Add the box to the window
         self.set_name("window")  # Set a name for the window (for CSS styling)
 
         # Dynamic CSS string for window and label appearance
@@ -86,23 +76,19 @@ class BoxedLabel(Gtk.Window):
         # Load and apply the defined CSS
         self.load_css()
 
-        # Display all components
-        self.show_all()
-
         # Make the window full-screen
         self.fullscreen()
 
     def load_css(self):
         """
-        Load and apply CSS styling to the window and its components.
-        This uses a dynamic CSS string defined in the 'css' attribute.
+        Load and apply the dynamic CSS to style the window and label.
         """
         css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(self.css.encode("utf-8"))
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        css_provider.load_from_data(self.css.encode())
+
+        display = Gdk.Display.get_default()
+        Gtk.StyleContext.add_provider_for_display(
+            display, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
         logging.info("CSS loaded and applied successfully.")
 
@@ -117,13 +103,12 @@ class BoxedLabel(Gtk.Window):
         formatted_text = f"<span foreground='white' background='black'><tt>{GLib.markup_escape_text(text)}</tt></span>"
         self.label.set_markup(formatted_text)
 
-    def on_close(self, widget, event) -> bool:
+    def on_close(self, widget) -> bool:
         """
         Handle the window close event and perform any necessary cleanup before exiting.
 
         Args:
             widget (Gtk.Widget): The widget triggering the event.
-            event (Gdk.Event): The event object associated with the close action.
 
         Returns:
             bool: Return False to allow the window to close.
@@ -541,10 +526,10 @@ def main(ip: str, username: str, password: str) -> None:
         logging.info("rmtstats is running")
 
         # Check if Gtk can be initialized
-        success, error = Gtk.init_check()
-        if not success:
-            logging.error(f"Failed to initialize Gtk: {error}")
-            sys.exit(1)
+        # success, error = Gtk.init_check()
+        # if not success:
+        #     logging.error(f"Failed to initialize Gtk: {error}")
+        #     sys.exit(1)
 
         # Initialize the thread that fetches remote statistics
         stats = FetchRemoteStats(ip=ip, user=username, password=password)
