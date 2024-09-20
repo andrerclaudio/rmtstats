@@ -4,9 +4,7 @@
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
-from gi.repository import GLib
-from gi.repository import Gdk
+from gi.repository import Gtk, GLib
 
 import argparse
 from functools import partial
@@ -58,15 +56,8 @@ class BoxedLabel(Gtk.Window):
         self.label = Gtk.Label()
         self.label.set_xalign(0)  # Align text to the left
         self.label.set_yalign(0)  # Align text to the top
-        self.label.set_justify(Gtk.Justification.LEFT)  # Left justify text
         self.label.set_wrap(True)  # Enable line wrapping for long text
-        self.label.set_name("label")  # Set a name for the label (for CSS styling)
-
-        # Create a vertical box to contain the label
-        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.box.append(self.label)  # Add the label to the box
-        self.set_child(self.box)  # Add the box to the window
-        self.set_name("window")  # Set a name for the window (for CSS styling)
+        self.set_child(self.label)
 
         # Dynamic CSS string for window and label appearance
         self.css = """
@@ -82,7 +73,8 @@ class BoxedLabel(Gtk.Window):
 
         # Load and apply the defined CSS
         self.load_css()
-
+        # Remove title bar
+        self.set_decorated(False)
         # Make the window full-screen
         self.fullscreen()
 
@@ -105,13 +97,11 @@ class BoxedLabel(Gtk.Window):
     def update_text(self, text):
         """
         Update the label text with formatted content.
-
         Args:
             text (str): The text to display in the label. It will be formatted and safely escaped for markup.
         """
-        # Escape and format the text for markup display (white text on a black background)
         formatted_text = f"<span foreground='white' background='black'><tt>{GLib.markup_escape_text(text)}</tt></span>"
-        self.label.set_markup(formatted_text)
+        GLib.idle_add(self.label.set_markup, formatted_text)
 
     def on_close(self, widget) -> bool:
         """
@@ -501,17 +491,18 @@ def update_label(window: BoxedLabel, stats: FetchRemoteStats) -> bool:
 
 def app_signal_handler(signum, frame, app: Gtk.Application) -> None:
     """
-    Handle signals (like SIGINT) to gracefully stop the application.
+    Handle termination signals to gracefully stop the GTK application.
 
-    This function is triggered when the user sends an interrupt signal (like CTRL+C).
-    It logs a shutdown message and quits the Gtk application cleanly.
+    This function is triggered when the process receives termination signals,
+    such as SIGINT (Ctrl+C) or SIGTERM (default kill signal). It logs the
+    shutdown event and gracefully terminates the Gtk application by calling `app.quit()`.
 
     Args:
-        signum (int): The signal number (e.g., SIGINT).
-        frame: The current stack frame (not used).
-        app (Gtk.Application): The Gtk application to quit.
+        signum (int): The signal number (e.g., SIGINT, SIGTERM).
+        frame: The current stack frame (not used, included for signal handling signature).
+        app (Gtk.Application): The Gtk application instance to quit gracefully.
     """
-    logging.info("Stopping application by user request.")
+    logging.info(f"Received signal {signum}. Initiating application shutdown.")
     app.quit()
 
 
@@ -535,12 +526,6 @@ def main(ip: str, username: str, password: str) -> None:
     try:
         logging.info("rmtstats is running")
 
-        # Check if Gtk can be initialized
-        # success, error = Gtk.init_check()
-        # if not success:
-        #     logging.error(f"Failed to initialize Gtk: {error}")
-        #     sys.exit(1)
-
         # Initialize the thread that fetches remote statistics
         stats = FetchRemoteStats(ip=ip, user=username, password=password)
 
@@ -556,10 +541,12 @@ def main(ip: str, username: str, password: str) -> None:
         # Set up a GLib timeout to periodically update the window's label every second
         GLib.timeout_add_seconds(1, lambda: update_label(window, stats))
 
-        # Handle the SIGINT (CTRL+C) signal to quit the application
+        # Handle the SIGINT (CTRL+C) and SIGTERM signals to quit the application
         signal.signal(
-            signal.SIGINT,
-            lambda sig, frame: app_signal_handler(sig, frame, app),
+            signal.SIGINT, lambda sig, frame: app_signal_handler(sig, frame, app)
+        )
+        signal.signal(
+            signal.SIGTERM, lambda sig, frame: app_signal_handler(sig, frame, app)
         )
 
         # Run the Gtk application
