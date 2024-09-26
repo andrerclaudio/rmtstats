@@ -16,9 +16,6 @@ class BoxedLabel(Gtk.Window):
     def __init__(self):
         """
         Initialize the BoxedLabel window.
-
-        Args:
-            app (Gtk.Application): The GTK application instance, used to quit the app when the window is closed.
         """
         super().__init__(title="--- Remote Stats ---")
 
@@ -28,12 +25,18 @@ class BoxedLabel(Gtk.Window):
         # Connect the "close-request" signal to handle window close events
         self.connect("close-request", self.on_close)
 
+        # Create a box to hold the label
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.set_child(self.box)
+
         # Create and configure the label to display the remote statistics
         self.label = Gtk.Label()
         self.label.set_xalign(0)  # Align text to the left
         self.label.set_yalign(0)  # Align text to the top
         self.label.set_wrap(True)  # Enable line wrapping for long text
-        self.set_child(self.label)
+
+        # Add the label to the box
+        self.box.append(self.label)
 
         # Dynamic CSS string for window and label appearance
         self.css = """
@@ -72,7 +75,7 @@ class BoxedLabel(Gtk.Window):
 
     def update_text(self, text):
         """
-        Update the label text with formatted content.
+        Update the label's text content dynamically from a string.
         Args:
             text (str): The text to display in the label. It will be formatted and safely escaped for markup.
         """
