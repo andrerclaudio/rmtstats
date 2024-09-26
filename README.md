@@ -15,7 +15,7 @@ rmtstats is a Python-based remote system monitoring tool that fetches and displa
 ## Requirements
 
 - Python 3.x
-- GTK 3.0
+- GTK 4.0
 - Required Python packages:
   - gi (PyGObject)
   - paramiko
