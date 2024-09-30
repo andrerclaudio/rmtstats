@@ -16,11 +16,11 @@ from core import FetchRemoteStats
 
 # Configure logging
 logging.basicConfig(
-    level=logging.WARNING, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 
-def app_signal_handler(signum, frame, app: Gtk.Application) -> None:
+def app_signal_handler(signum, frame, app: BoxedLabel) -> None:
     """
     Handle termination signals to gracefully stop the GTK application.
 
@@ -31,10 +31,13 @@ def app_signal_handler(signum, frame, app: Gtk.Application) -> None:
     Args:
         signum (int): The signal number (e.g., SIGINT, SIGTERM).
         frame: The current stack frame (not used, included for signal handling signature).
-        app (Gtk.Application): The Gtk application instance to quit gracefully.
+        app (BoxedLabel): The Gtk application that was started by `Gtk.init()`.
+
+    Returns:
+        None: This function does not return any value.
     """
     logging.info(f"Received signal {signum}. Initiating application shutdown.")
-    app.quit()
+    app.on_close(widget=None)
 
 
 def main(ip: str, username: str, password: str, interface: str = None) -> None:
@@ -76,11 +79,11 @@ def main(ip: str, username: str, password: str, interface: str = None) -> None:
 
         # Handle the SIGINT (CTRL+C) and SIGTERM signals to quit the application
         signal.signal(
-            signal.SIGINT, lambda sig, frame: app_signal_handler(sig, frame, window.app)
+            signal.SIGINT, lambda sig, frame: app_signal_handler(sig, frame, window)
         )
         signal.signal(
             signal.SIGTERM,
-            lambda sig, frame: app_signal_handler(sig, frame, window.app),
+            lambda sig, frame: app_signal_handler(sig, frame, window),
         )
 
         # Run the Gtk application
@@ -132,12 +135,7 @@ if __name__ == "__main__":
         help="Network interface to check. E.g.: tun0 or wlo1.",
     )
 
-    # Parse the arguments from the command line
+    #  Validate the command-line arguments.
     args = parser.parse_args()
-
-    # Ensure all required arguments are provided
-    if not args.ip or not args.user or not args.password:
-        parser.error("The --ip, --user, and --password arguments are required.")
-
     # Start the main application with the parsed arguments
     main(args.ip, args.user, args.password, args.interface)
